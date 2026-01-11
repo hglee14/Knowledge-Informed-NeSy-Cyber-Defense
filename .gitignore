@@ -1,0 +1,18 @@
+# 1. 가상환경 및 로컬 설정 (배포용 폴더에는 .venv를 만들지 않겠지만 안전을 위해 추가)
+.venv/
+.vscode/
+.idea/
+
+# 2. Python 캐시 및 임시 파일
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 3. 연구 로그 및 대용량 파일 (실제 데이터는 data/에 수동 복사한 것만 올라가야 함)
+*.log
+*.zip
+*.csv  # 루트에 있는 csv는 제외 (data/ 안의 것만 올리고 싶을 경우)
+
+# 4. OS 관련 파일
+.DS_Store
+Thumbs.db
