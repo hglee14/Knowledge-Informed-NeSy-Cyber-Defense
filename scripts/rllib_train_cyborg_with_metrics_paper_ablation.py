@@ -21,7 +21,7 @@ import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# DeprecationWarning 숨기기 (gymnasium의 rng.randint 경고)
+# Suppress DeprecationWarning (gymnasium rng.randint)
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="gym")
 
 import numpy as np
@@ -32,7 +32,7 @@ from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from ray.tune.registry import register_env
 from ray.tune.logger import UnifiedLogger
 
-# PyTorch 시드 설정 (가능한 경우)
+# PyTorch seed setup (if available)
 try:
     import torch
     TORCH_AVAILABLE = True
@@ -69,7 +69,7 @@ def parse_args() -> argparse.Namespace:
         "--max-episode-steps",
         type=int,
         default=800,
-        help="TimeLimit for episodes (Gymnasium wrapper). 1st_success와 동일하게 800으로 설정.",
+        help="TimeLimit for episodes (Gymnasium wrapper). Same as 1st_success: 800.",
     )
 
     # Resources
@@ -93,7 +93,7 @@ def _set_ablation_env_vars(mode: str, lam: float) -> None:
 
 
 class CybUptimeCallbacks(DefaultCallbacks):
-    """1st_success와 동일한 Callback - uptime 메트릭 수집"""
+    """Same callback as 1st_success — collect uptime metrics."""
     def on_postprocess_trajectory(
         self,
         *,
@@ -125,7 +125,7 @@ class CybUptimeCallbacks(DefaultCallbacks):
         if ups:
             episode.user_data.setdefault("uptime_values", []).extend(ups)
         
-        # Raw reward 로깅 분리 (필수): 논문 방어력 향상
+        # Separate raw reward logging (required for paper defense metrics)
         raw_rewards = [d.get("raw_reward") for d in arr if d.get("raw_reward") is not None]
         if raw_rewards:
             episode.user_data.setdefault("raw_rewards", []).extend(raw_rewards)
@@ -138,7 +138,7 @@ class CybUptimeCallbacks(DefaultCallbacks):
         if shaped_returns:
             episode.user_data.setdefault("shaped_returns", []).extend(shaped_returns)
         
-        # Observation dimension 로깅 (Full Ontology vs Ontology 차이 증명용)
+        # Observation dimension logging (to show Full Ontology vs Ontology difference)
         obs_dims = [d.get("obs_dim") for d in arr if d.get("obs_dim") is not None]
         if obs_dims:
             episode.user_data.setdefault("obs_dims", []).extend(obs_dims)
@@ -157,7 +157,7 @@ class CybUptimeCallbacks(DefaultCallbacks):
         if ups:
             episode.custom_metrics["uptime_rate_mean"] = float(np.mean(ups))
         
-        # Raw reward 로깅 분리 (필수): 논문 방어력 향상
+        # Separate raw reward logging (required for paper defense metrics)
         raw_rewards = episode.user_data.get("raw_rewards", [])
         if raw_rewards:
             episode.custom_metrics["raw_reward_mean"] = float(np.mean(raw_rewards))
@@ -170,13 +170,13 @@ class CybUptimeCallbacks(DefaultCallbacks):
         if shaped_returns:
             episode.custom_metrics["shaped_return_mean"] = float(np.mean(shaped_returns))
         
-        # Observation dimension 로깅 (Full Ontology vs Ontology 차이 증명용)
+        # Observation dimension logging (to show Full Ontology vs Ontology difference)
         obs_dims = episode.user_data.get("obs_dims", [])
         if obs_dims:
-            # 모든 스텝에서 동일해야 하므로 첫 번째 값 사용
+            # Use first value since it must be the same for all steps
             episode.custom_metrics["obs_dim"] = float(obs_dims[0] if obs_dims else 0)
             
-        # Episode length도 수집 (RLlib이 자동으로 제공하지만 명시적으로 저장)
+        # Also collect episode length (RLlib provides it but we store explicitly)
         if hasattr(episode, "length") and episode.length is not None:
             episode.custom_metrics["episode_length"] = float(episode.length)
 
@@ -191,7 +191,7 @@ def custom_log_creator(custom_path: str, custom_config: Optional[Dict[str, Any]]
     def logger_creator(config: Dict[str, Any]):
         if custom_config:
             config.update(custom_config)
-        # UnifiedLogger는 CSV, JSON, TensorBoard 로그를 모두 생성합니다.
+        # UnifiedLogger creates CSV, JSON, and TensorBoard logs.
         return UnifiedLogger(config, custom_path)
     return logger_creator
 
@@ -199,8 +199,8 @@ def custom_log_creator(custom_path: str, custom_config: Optional[Dict[str, Any]]
 def main() -> None:
     args = parse_args()
 
-    # ===== 재현성을 위한 전역 시드 설정 =====
-    # 모든 랜덤 시드 설정 (재현성 향상)
+    # ===== Global seed for reproducibility =====
+    # Set all random seeds (for reproducibility)
     np.random.seed(args.seed)
     random.seed(args.seed)
     if TORCH_AVAILABLE:
@@ -218,11 +218,11 @@ def main() -> None:
     # Ensure all workers see the same mode/λ.
     _set_ablation_env_vars(args.ablation, args.nesy_lam)
 
-    # 로그 디렉토리 설정 및 생성
+    # Log directory setup
     log_dir = Path(args.logdir) / args.exp_name
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    # 실험 결과 디렉토리에 사용 소스 코드 복사 (재현성/버전 관리)
+    # Copy source code to result dir (reproducibility / versioning)
     _src_dir = Path(__file__).resolve().parent
     for _name in ("cyborg_env_maker_paper_ablation.py", "rllib_train_cyborg_with_metrics_paper_ablation.py"):
         _src = _src_dir / _name
@@ -238,33 +238,33 @@ def main() -> None:
     def env_creator(env_config: Dict[str, Any]):
         # Propagate ablation into env_config as well (more explicit than env vars).
         env_config = dict(env_config or {})
-        # Worker별 시드 분배: worker_index가 있으면 base_seed + worker_index 사용
+        # Per-worker seed: if worker_index present, use base_seed + worker_index
         worker_seed = args.seed
         if "worker_index" in env_config:
             worker_index = env_config.get("worker_index", 0)
             worker_seed = args.seed + worker_index
         env_config.update(
             {
-                "seed": worker_seed,  # Worker별 고유 시드 사용
+                "seed": worker_seed,  # Unique seed per worker
                 "max_episode_steps": args.max_episode_steps,
                 "nesy_mode": args.ablation,
                 "nesy_lam": args.nesy_lam,
-                "blue_agent": "blue_agent_0",  # 1st_success와 동일하게
+                "blue_agent": "blue_agent_0",  # Same as 1st_success
             }
         )
         return cyborg_env_maker.create_cyborg_env(env_config)
 
     register_env(env_name, env_creator)
 
-    # Ray 초기화 (안정성 향상을 위한 설정)
-    # 병렬 실행 시 메모리 및 리소스 관리
-    # 경로 길이 제한(107 bytes)을 피하기 위해 /tmp 사용
+    # Ray init (settings for stability)
+    # Memory and resource management for parallel runs
+    # Use /tmp to avoid path length limit (107 bytes)
     ray_tmp_dir = getattr(args, 'ray_temp', None) or os.environ.get("RAY_TMPDIR")
     if not ray_tmp_dir:
-        # 짧은 경로 사용 (socket 경로 길이 제한 회피)
+        # Use short path (avoid socket path length limit)
         import tempfile
         ray_tmp_dir = str(Path(tempfile.gettempdir()) / "ray_tmp" / args.exp_name[:20])
-    # Ray는 절대 경로를 요구하므로 변환
+    # Ray requires absolute path
     ray_tmp_dir = str(Path(ray_tmp_dir).resolve())
     
     spill_cfg_env = os.environ.get("RAY_object_spilling_config")
@@ -272,7 +272,7 @@ def main() -> None:
         spill_dir = str(Path(ray_tmp_dir) / "spill")
         _ensure_dir(Path(spill_dir))
         ray_system_config = {
-            "automatic_object_spilling_enabled": True,  # 1st_success와 동일
+            "automatic_object_spilling_enabled": True,  # Same as 1st_success
             "min_spilling_size": 10 * 1024 * 1024,  # 10MB
             "memory_monitor_refresh_ms": 250,
         }
@@ -281,13 +281,13 @@ def main() -> None:
     
     ray.init(
         ignore_reinit_error=True,
-        include_dashboard=False,  # 대시보드 비활성화 (리소스 절약)
-        _temp_dir=ray_tmp_dir,  # 절대 경로로 변환됨
+        include_dashboard=False,  # Disable dashboard (save resources)
+        _temp_dir=ray_tmp_dir,  # Resolved to absolute path
         _system_config=ray_system_config,
     )
 
-    # [병렬 실행 안정성] Dummy 환경 생성하여 observation/action space 확인
-    # Worker 프로세스에서 환경 초기화 실패를 방지하기 위해 메인 프로세스에서 미리 확인
+    # [Parallel run stability] Create dummy env to verify observation/action space
+    # Check in main process first to avoid init failures in workers
     print("[Setup] Creating dummy environment to verify observation/action spaces...")
     dummy_env = cyborg_env_maker.create_cyborg_env({
         "seed": args.seed,
@@ -309,9 +309,9 @@ def main() -> None:
         .environment(
             env=env_name,
             env_config={},
-            disable_env_checking=True,  # [병렬 실행 안정성] 환경 체크 비활성화
-            observation_space=obs_space,  # [병렬 실행 안정성] 명시적 space 지정
-            action_space=act_space,  # [병렬 실행 안정성] 명시적 space 지정
+            disable_env_checking=True,  # [Parallel stability] disable env check
+            observation_space=obs_space,  # [Parallel stability] explicit space
+            action_space=act_space,  # [Parallel stability] explicit space
         )
         .framework("torch")
         .resources(num_gpus=args.num_gpus)
@@ -319,8 +319,8 @@ def main() -> None:
             num_rollout_workers=args.num_workers,
             rollout_fragment_length=args.rollout_fragment_length,
             num_envs_per_worker=1,
-            batch_mode="truncate_episodes",  # [병렬 실행 안정성] 에피소드 잘림 모드
-            compress_observations=True,  # [병렬 실행 안정성] 관측 압축 (메모리 절약)
+            batch_mode="truncate_episodes",  # [Parallel stability] truncate episodes
+            compress_observations=True,  # [Parallel stability] compress obs (save memory)
         )
         .training(
             train_batch_size=args.train_batch_size,
@@ -331,37 +331,37 @@ def main() -> None:
             clip_param=0.2,
             vf_clip_param=10.0,
             entropy_coeff=0.0,
-            sgd_minibatch_size=min(128, args.train_batch_size),  # train_batch_size보다 작게
+            sgd_minibatch_size=min(128, args.train_batch_size),  # Smaller than train_batch_size
             num_sgd_iter=10,
             grad_clip=0.5,
         )
-        .callbacks(CybUptimeCallbacks)  # uptime 메트릭 수집을 위한 Callback 추가
+        .callbacks(CybUptimeCallbacks)  # Callback to collect uptime metrics
         .debugging(log_level="WARN")
     )
 
-    # [병렬 실행 안정성] Connector 비활성화 및 Simple Optimizer 사용
+    # [Parallel stability] Disable connectors and use Simple Optimizer
     config.enable_connectors = False
     
-    # Simple optimizer 사용 (메모리 절약 및 안정성 향상)
+    # Use simple optimizer (save memory and improve stability)
     cfg_dict = config.to_dict()
     cfg_dict["simple_optimizer"] = True
     
-    # 재현성을 위한 시드 설정 (RLlib 2.x 방식)
+    # Seed for reproducibility (RLlib 2.x)
     cfg_dict["seed"] = args.seed
-    # Worker별 시드 분배: 각 worker는 base_seed + worker_index를 사용
+    # Per-worker seed: each worker uses base_seed + worker_index
     if "rollouts" not in cfg_dict:
         cfg_dict["rollouts"] = {}
     cfg_dict["rollouts"]["seed"] = args.seed
     
     config = PPOConfig.from_dict(cfg_dict)
 
-    # Custom logger creator를 사용하여 progress.csv를 지정된 디렉토리에 저장
+    # Custom logger creator to save progress.csv to the given directory
     algo = config.build(logger_creator=custom_log_creator(str(log_dir)))
 
     print(f"\n[START] {args.exp_name} | ablation={args.ablation} | seed={args.seed} | lam={args.nesy_lam}")
     print(f"[LOG] Results will be saved to: {log_dir}\n")
 
-    # progress.log 파일 열기 (각 iteration의 메트릭 기록)
+    # Open progress.log for per-iteration metrics
     progress_log_path = log_dir / "progress.log"
     progress_log_file = open(progress_log_path, "w", encoding="utf-8")
     progress_log_file.write(f"# Training Progress Log: {args.exp_name}\n")
@@ -385,23 +385,23 @@ def main() -> None:
             cm = result.get("custom_metrics") or {}
             
             # RLlib aggregates episode metrics: uptime_rate_mean -> uptime_rate_mean_mean
-            # (Callback에서 uptime_rate_mean으로 저장, RLlib이 여러 episode 평균을 다시 평균냄)
+            # (Callback stores uptime_rate_mean; RLlib re-averages over episodes)
             for k in ("uptime_rate_mean_mean", "uptime_rate_mean", "uptime_mean", "uptime", "episode_uptime_mean"):
                 if k in cm:
                     uptime = cm[k]
                     break
 
-            # 콘솔 출력
+            # Console output
             print(f"[{args.exp_name}] Iter {i:03d} | Rw: {rw: .2f} | Uptime: {uptime: .4f} | EpLen: {ep_len: .2f}")
             
-            # progress.log에 기록
+            # Write to progress.log
             progress_log_file.write(f"{i},{rw:.4f},{uptime:.4f},{ep_len:.2f},{timesteps}\n")
             progress_log_file.flush()
     finally:
         progress_log_file.close()
         print(f"[LOG] Progress log saved to: {progress_log_path}")
 
-    # 최종 요약 저장
+    # Save final summary
     if last_result is not None:
         final_cm = last_result.get("custom_metrics") or {}
         final_uptime = float("nan")
@@ -422,7 +422,7 @@ def main() -> None:
             "logdir": str(log_dir),
         }
         
-        # final_summary.json 저장
+        # Save final_summary.json
         summary_path = log_dir / "final_summary.json"
         with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, ensure_ascii=False, indent=2)

@@ -1,0 +1,11 @@
+{
+  "exp_name": "paper_nesy_base_seed3_20260127_153550",
+  "ablation": "base",
+  "seed": 3,
+  "nesy_lam": 1.0,
+  "timesteps_total": 200000,
+  "episode_reward_mean": -8236.43,
+  "episode_len_mean": 337.35,
+  "uptime_rate_mean": 0.7296654123227745,
+  "logdir": "ray_results/paper_6_ablations_20260127_153550/paper_nesy_base_seed3_20260127_153550"
+}

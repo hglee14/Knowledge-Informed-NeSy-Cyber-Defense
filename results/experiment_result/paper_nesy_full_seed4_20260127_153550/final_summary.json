@@ -1,0 +1,11 @@
+{
+  "exp_name": "paper_nesy_full_seed4_20260127_153550",
+  "ablation": "full",
+  "seed": 4,
+  "nesy_lam": 1.0,
+  "timesteps_total": 200000,
+  "episode_reward_mean": -4807.72834774524,
+  "episode_len_mean": 355.14,
+  "uptime_rate_mean": 0.7452407238874469,
+  "logdir": "ray_results/paper_6_ablations_20260127_153550/paper_nesy_full_seed4_20260127_153550"
+}

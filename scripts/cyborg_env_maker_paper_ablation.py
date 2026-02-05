@@ -23,25 +23,25 @@ import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.wrappers import TimeLimit
 
-# CybORG 경로 설정: 환경 변수 또는 자동 탐지
+# CybORG path: env var or auto-detect
 def _setup_cyborg_path():
-    """CybORG 모듈 경로를 sys.path에 추가합니다.
+    """Add CybORG module path to sys.path.
     
-    우선순위:
-    1. 환경 변수 CAGE4_CC4_PATH 또는 CYBORG_PATH
-    2. 상대 경로: third_party/CybORG
-    3. 상대 경로: ../cage-challenge-4/CybORG
+    Priority:
+    1. Env vars CAGE4_CC4_PATH or CYBORG_PATH
+    2. Relative: third_party/CybORG
+    3. Relative: ../cage-challenge-4/CybORG
     """
     cyborg_path = None
     
-    # 환경 변수 확인
+    # Check env vars
     for env_var in ["CAGE4_CC4_PATH", "CYBORG_PATH"]:
         env_path = os.environ.get(env_var, "").strip()
         if env_path and os.path.isdir(env_path):
             cyborg_path = os.path.abspath(env_path)
             break
     
-    # 자동 탐지
+    # Auto-detect
     if cyborg_path is None:
         here = os.path.dirname(os.path.abspath(__file__))
         candidates = [
@@ -55,7 +55,7 @@ def _setup_cyborg_path():
                 cyborg_path = candidate
                 break
     
-    # sys.path에 추가
+    # Add to sys.path
     if cyborg_path and cyborg_path not in sys.path:
         sys.path.insert(0, cyborg_path)
         return cyborg_path
@@ -134,23 +134,23 @@ class CybORGWrapper(gym.Env):
         self.seed_value = int(seed) if seed is not None else None
         self.max_episode_steps = int(max_episode_steps)
         self.steps = 0
-        self.episode_count = 0  # 학습 진행도 추적 (annealing용)
-        self.total_steps = 0  # 전체 스텝 수 추적
+        self.episode_count = 0  # Track training progress (for annealing)
+        self.total_steps = 0  # Total step count
         self.blue_agent = blue_agent
 
         self.nesy_mode = _parse_mode(nesy_mode)
-        # State Abstraction과 Reward Shaping은 full 모드 계열에 포함
-        # logic_guided와 rule_pruning은 base 모델에 해당 기능만 추가
-        # Ontology 모드: Full NeSy의 state abstraction 사용, reward shaping은 독립적으로
-        # full_ontology 모드: Full NeSy (state abstraction + multi-objective reward) + Ontology reward shaping
+        # State Abstraction and Reward Shaping are in the full-mode family
+        # logic_guided and rule_pruning add only that feature to base
+        # Ontology mode: use Full NeSy state abstraction; reward shaping is independent
+        # full_ontology: Full NeSy (state + multi-objective reward) + Ontology reward shaping
         self.use_ontology = self.nesy_mode in {"ontology", "full_ontology"}
-        # Observation: Full NeSy와 Ontology 둘 다 52차원 압축 사용 (공정한 비교)
+        # Observation: both Full NeSy and Ontology use 52-dim compression (fair comparison)
         self.use_state_abstraction = self.nesy_mode in {"state", "full", "full_logic", "full_rule", "full_all", "full_ontology"} or self.use_ontology
-        # Reward Shaping: Full NeSy는 multi-objective, Ontology는 Axiom 기반 (독립적)
-        # full_ontology: Full NeSy의 multi-objective + Ontology의 axiom-based 둘 다 사용
+        # Reward Shaping: Full NeSy = multi-objective; Ontology = Axiom-based (independent)
+        # full_ontology: both Full NeSy multi-objective and Ontology axiom-based
         self.use_reward_shaping = self.nesy_mode in {"reward", "full", "full_logic", "full_rule", "full_all", "full_ontology"}
         self.use_graph_representation = self.nesy_mode == "graph"
-        # Full 모드 계열: Logic-Guided와 Rule-Based Pruning 포함 여부
+        # Full-mode family: whether Logic-Guided and Rule-Based Pruning are included
         # full_logic: Full + Logic-Guided
         # full_rule: Full + Rule-Based Pruning
         # full_all: Full + Logic-Guided + Rule-Based Pruning
@@ -158,21 +158,21 @@ class CybORGWrapper(gym.Env):
         self.use_rule_pruning = self.nesy_mode in {"rule_pruning", "full_rule", "full_all"}
         self.nesy_lam = float(nesy_lam)
 
-        # Frame Stacking과 Adaptive Scaling 제어
-        # 기본값: 모든 실험에서 제외 (False)
-        # frame_stack 또는 adaptive_scale 모드일 때만 활성화
+        # Frame Stacking and Adaptive Scaling
+        # Default: disabled for all experiments (False)
+        # Enabled only in frame_stack or adaptive_scale mode
         self.enable_frame_stack = enable_frame_stack or self.nesy_mode == "frame_stack"
         self.enable_adaptive_scale = enable_adaptive_scale or self.nesy_mode == "adaptive_scale"
 
-        # --- Build CybORG (1st_success 방식) ---
+        # --- Build CybORG (same as 1st_success) ---
         self.scenario = DroneSwarmScenarioGenerator()
         self.cyborg = CybORG(self.scenario, "sim", seed=self.seed_value)
         
-        # 1st_success와 동일한 래퍼 구조
+        # Same wrapper structure as 1st_success
         self.raw_wrapped = FixedFlatWrapper(self.cyborg)
         self._gym_env = OpenAIGymWrapper(agent_name=self.blue_agent, env=self.raw_wrapped)
 
-        # Host 정보 (모든 모드에서 사용)
+        # Host info (used in all modes)
         self.known_hosts = [
             'User0', 'User1', 'User2', 'User3', 'User4',
             'Enterprise0', 'Enterprise1', 'Enterprise2', 'Enterprise_Server',
@@ -181,44 +181,44 @@ class CybORGWrapper(gym.Env):
         ]
         self.critical_targets = ['Op_Server0', 'Enterprise_Server', 'Op_Host0']
         self.feats_per_host = 3
-        # Ablation 설계 의도에 따라 관측 차원 분기:
-        # - 실험 2 (state): 52-dim state abstraction (논문: "52차원 압축 observation")
-        # - 실험 3 (reward): raw observation (논문: "baseline raw observation 유지")
-        # - 실험 5 (ontology): 107-dim ontology observation (논문: "107차원 ontology observation")
-        # - 실험 4 (full): 52-dim state abstraction (Full NeSy는 state abstraction 사용)
-        # - 실험 6 (full_ontology = 2+3+5): 107-dim ontology observation 사용
-        #   → 107-dim이 52-dim state abstraction의 정보(is_compromised, service_status 등)를 포함하므로
-        #     실험 2(state)의 정보가 포함됨. 실험 3(reward)는 reward shaping으로, 실험 5(ontology)는 observation으로 포함.
-        #   → 159-dim concat은 중복이므로 사용하지 않음
-        self.use_107dim_unified = self.nesy_mode in {"ontology", "full_ontology"}  # ontology, full_ontology 모두 107-dim
+        # Observation dimension by ablation design:
+        # - Exp 2 (state): 52-dim state abstraction (paper: "52-dim compressed observation")
+        # - Exp 3 (reward): raw observation (paper: "keep baseline raw observation")
+        # - Exp 5 (ontology): 107-dim ontology observation (paper: "107-dim ontology observation")
+        # - Exp 4 (full): 52-dim state abstraction (Full NeSy uses state abstraction)
+        # - Exp 6 (full_ontology = 2+3+5): 107-dim ontology observation
+        #   → 107-dim includes 52-dim info (is_compromised, service_status etc.), so state info is included.
+        #     Reward is from reward shaping; ontology from observation.
+        #   → 159-dim concat is redundant, not used
+        self.use_107dim_unified = self.nesy_mode in {"ontology", "full_ontology"}  # both 107-dim
         self.ontology_obs_dim = 1 + 4 + len(self.known_hosts) * 4 + len(self.known_hosts) * 2  # 107 for 17 hosts
         
-        # Uptime 추적 (개선: Uptime 중심 보상)
+        # Uptime tracking (improvement: uptime-centric reward)
         self._prev_uptime = 1.0
-        self._uptime_history = deque(maxlen=10)  # 최근 10 스텝의 Uptime 추적
+        self._uptime_history = deque(maxlen=10)  # Track uptime over last 10 steps
         
-        # ===== 성능 개선: Frame Stacking (시간적 정보) =====
-        # Observation space 설정 전에 초기화 필요
-        # 기본값: 1 (비활성화), frame_stack 모드일 때만 활성화
+        # ===== Frame Stacking (temporal info) =====
+        # Must be initialized before setting observation space
+        # Default: 1 (disabled); only in frame_stack mode
         if self.enable_frame_stack:
-            self.frame_stack = int(os.environ.get("NESY_FRAME_STACK", "4"))  # frame_stack 모드: 4프레임
+            self.frame_stack = int(os.environ.get("NESY_FRAME_STACK", "4"))  # frame_stack mode: 4 frames
         else:
-            self.frame_stack = 1  # 비활성화
+            self.frame_stack = 1  # Disabled
         if self.frame_stack < 1:
             self.frame_stack = 1
         self._obs_history = deque(maxlen=self.frame_stack)
         
-        # Observation space 설정 (ablation 설계 의도에 따라):
+        # Observation space (by ablation design):
         # - Base: raw observation (~11k dim)
         # - State (2): 52-dim state abstraction
         # - Reward (3): raw observation
         # - Ontology (5): 107-dim ontology observation
         # - Full (4): 52-dim state abstraction
         # - Full Ontology (6 = 2+3+5): 107-dim ontology observation
-        #   → 107-dim이 52-dim의 정보(is_compromised, service_status 등)를 포함하므로 실험 2(state) 정보 포함
-        #   → 159-dim concat은 중복이므로 사용하지 않음
+        #   → 107-dim includes 52-dim info, so exp 2 (state) is included
+        #   → 159-dim concat is redundant, not used
         if self.use_107dim_unified:
-            # ontology, full_ontology 모두 107-dim
+            # ontology, full_ontology both 107-dim
             base_obs_dim = self.ontology_obs_dim  # 107
             obs_dim = base_obs_dim * self.frame_stack
             self.observation_space = spaces.Box(
@@ -228,7 +228,7 @@ class CybORGWrapper(gym.Env):
                 dtype=np.float32,
             )
         elif self.use_state_abstraction:
-            # state, full 등: 52-dim state abstraction
+            # state, full etc.: 52-dim state abstraction
             base_obs_dim = 1 + len(self.known_hosts) * self.feats_per_host  # uptime + hosts
             obs_dim = base_obs_dim * self.frame_stack
             self.observation_space = spaces.Box(
@@ -238,13 +238,13 @@ class CybORGWrapper(gym.Env):
                 dtype=np.float32,
             )
         elif self.use_graph_representation:
-            # Graph-based representation (논문 방식: King et al., 2025)
-            # Node embeddings: 각 host의 k-hop neighborhood 정보 포함
-            # 간소화: 각 host당 embedding dimension = 64 (논문의 GNN output)
-            # 17개 hosts × 64 dimensions = 1088차원
+            # Graph-based representation (paper: King et al., 2025)
+            # Node embeddings: k-hop neighborhood per host
+            # Simplified: 64-dim embedding per host (paper GNN output)
+            # 17 hosts × 64 = 1088 dims
             graph_embedding_dim = 64  # GNN embedding dimension
             base_obs_dim = len(self.known_hosts) * graph_embedding_dim
-            # Frame stacking 적용
+            # Apply frame stacking
             obs_dim = base_obs_dim * self.frame_stack
             self.observation_space = spaces.Box(
                 low=-np.inf,
@@ -253,10 +253,10 @@ class CybORGWrapper(gym.Env):
                 dtype=np.float32,
             )
         elif self.use_state_abstraction:
-            # 논문과 1st_success 방식: Host-specific knowledge vector
-            # 17개 hosts × 3 features + uptime = 52차원 (논문의 60차원에 가까움)
+            # Paper and 1st_success: host-specific knowledge vector
+            # 17 hosts × 3 features + uptime = 52 dims (close to paper's 60 dims)
             base_obs_dim = 1 + len(self.known_hosts) * self.feats_per_host  # uptime + hosts
-            # Frame stacking 적용
+            # Apply frame stacking
             obs_dim = base_obs_dim * self.frame_stack
             self.observation_space = spaces.Box(
                 low=-np.inf,
@@ -265,15 +265,15 @@ class CybORGWrapper(gym.Env):
                 dtype=np.float32,
             )
         else:
-            # Baseline: FixedFlatWrapper의 observation space 사용
-            # frame_stack 모드일 때는 frame stacking을 고려하여 차원 증가
+            # Baseline: use FixedFlatWrapper observation space
+            # In frame_stack mode, dims increase for frame stacking
             base_obs_space = self._gym_env.observation_space
             if hasattr(base_obs_space, "shape"):
                 base_obs_dim = int(base_obs_space.shape[0])
             else:
                 base_obs_dim = 11293  # fallback
             
-            # Frame stacking 적용 (frame_stack 모드일 때)
+            # Apply frame stacking (when in frame_stack mode)
             obs_dim = base_obs_dim * self.frame_stack
             
             self.observation_space = spaces.Box(
@@ -290,13 +290,13 @@ class CybORGWrapper(gym.Env):
             n_actions = 56  # fallback
         self.action_space = spaces.Discrete(n_actions)
         
-        # ===== NeSy Reward Shaping 초기화 =====
-        # Multi-objective reward shaping을 위한 상태 추적
-        self._prev_uptime = 1.0  # 초기 uptime (reset에서 업데이트됨)
+        # ===== NeSy Reward Shaping init =====
+        # State tracking for multi-objective reward shaping
+        self._prev_uptime = 1.0  # Initial uptime (updated on reset)
         
         # ===== Adaptive Reward Scaling =====
-        # 학습 단계에 따라 보너스 조정 (초기에는 더 큰 보너스)
-        # 기본값: 비활성화, adaptive_scale 모드일 때만 활성화
+        # Adjust bonus by training phase (larger early on)
+        # Default: disabled; only in adaptive_scale mode
         self._episode_count = 0
         self._adaptive_scale = 1.0
 
@@ -370,15 +370,15 @@ class CybORGWrapper(gym.Env):
         return float(compromised), float(unknown)
 
     def _extract_hifi_knowledge(self, uptime: float) -> np.ndarray:
-        """1st_success와 논문 방식: Host-specific knowledge vector (52차원).
+        """1st_success and paper: host-specific knowledge vector (52 dims).
         
-        논문의 60차원 knowledge vector에 가까운 구현.
-        각 host별로 is_compromised, service_up, activity 정보를 추출.
+        Implementation close to paper's 60-dim knowledge vector.
+        Per host: is_compromised, service_up, activity.
         """
         try:
             true_state = self.cyborg.get_agent_state('True')
         except Exception:
-            # Fallback: 간단한 방법 사용
+            # Fallback: simple method
             uptime_val = self._calculate_uptime_fast()
             compromised, unknown = self._get_compromise_counts()
             return np.array([uptime_val, compromised, unknown], dtype=np.float32)
@@ -387,23 +387,23 @@ class CybORGWrapper(gym.Env):
         for hostname in self.known_hosts:
             host_info = true_state.get(hostname, {})
             
-            # is_compromised: Red agent session이 있는지
+            # is_compromised: whether Red agent session exists
             is_compromised = 0.0
             for sess in host_info.get('Sessions', []):
-                # 개선: str() 변환 제거 (1st_success와 일관성)
+                # Improvement: no str() cast (consistent with 1st_success)
                 agent_name = sess.get('Agent', '')
                 if agent_name and 'Red' in agent_name:
                     is_compromised = 1.0
                     break
             
-            # service_up: 서비스 프로세스가 실행 중인지
+            # service_up: whether service process is running
             service_up = 0.0
             for proc in host_info.get('Processes', []):
                 if proc.get('Service Name'):
                     service_up = 1.0
                     break
             
-            # activity: compromised 또는 service_up이면 활동 중
+            # activity: active if compromised or service_up
             activity = 1.0 if (is_compromised or service_up) else 0.0
             
             features.extend([is_compromised, service_up, activity])
@@ -411,17 +411,17 @@ class CybORGWrapper(gym.Env):
         return np.array(features, dtype=np.float32)
 
     def _nesy_state_features(self) -> np.ndarray:
-        """Return the NeSy state vector (논문 방식: 52차원)."""
+        """Return the NeSy state vector (paper: 52 dims)."""
         uptime = self._calculate_uptime_fast()
         return self._extract_hifi_knowledge(uptime)
     
     def _ontology_based_observation(self) -> np.ndarray:
-        """Ontology-based observation: 명시적인 온톨로지 구조 기반 state representation.
+        """Ontology-based observation: state representation from explicit ontology structure.
         
-        NeSy 요구사항:
-        1. Explicit Knowledge Representation (온톨로지)
-        2. Symbolic Reasoning (논리 규칙 기반 추론)
-        3. Neural-Symbolic Integration (신경망 입력으로 변환)
+        NeSy requirements:
+        1. Explicit Knowledge Representation (ontology)
+        2. Symbolic Reasoning (logic-rule-based inference)
+        3. Neural-Symbolic Integration (convert to neural input)
         
         Returns:
             ontology_features: np.ndarray of shape (107,)
@@ -436,8 +436,8 @@ class CybORGWrapper(gym.Env):
         uptime = self._calculate_uptime_fast()
         features = [uptime]
         
-        # ===== 1. MITRE ATT&CK Tactics (4차원) =====
-        # 명시적인 공격 단계 분류 (온톨로지: AttackStage 개념)
+        # ===== 1. MITRE ATT&CK Tactics (4 dims) =====
+        # Explicit attack-stage classification (ontology: AttackStage concept)
         recon_score = 0.0
         access_score = 0.0
         lateral_score = 0.0
@@ -454,16 +454,16 @@ class CybORGWrapper(gym.Env):
                     break
             
             if is_compromised:
-                # 온톨로지 규칙: Critical target compromised → Impact
+                # Ontology rule: Critical target compromised → Impact
                 if hostname in self.critical_targets:
                     impact_score += 1.0
-                # 온톨로지 규칙: Op/Enterprise network → Lateral Movement
+                # Ontology rule: Op/Enterprise network → Lateral Movement
                 elif 'Op_' in hostname or 'Enterprise' in hostname:
                     lateral_score += 1.0
-                # 온톨로지 규칙: User network → Initial Access
+                # Ontology rule: User network → Initial Access
                 else:
                     access_score += 1.0
-                # 모든 compromised host는 Recon 단계 포함
+                # Every compromised host includes Recon stage
                 recon_score += 1.0
         
         # Normalize tactic scores
@@ -477,7 +477,7 @@ class CybORGWrapper(gym.Env):
         features.extend(tactic_scores.tolist())
         
         # ===== 2. Host Ontology Features (17 hosts × 4 features) =====
-        # 온톨로지: Host 개념의 속성들
+        # Ontology: Host concept attributes
         host_criticality_map = {}
         for hostname in self.known_hosts:
             if hostname in self.critical_targets:
@@ -495,26 +495,26 @@ class CybORGWrapper(gym.Env):
             # Feature 1: is_compromised (0.0 or 1.0)
             is_compromised = 0.0
             for sess in host_info.get('Sessions', []):
-                # 개선: str() 변환 제거 (1st_success와 일관성)
+                # Improvement: no str() cast (consistent with 1st_success)
                 agent_name = sess.get('Agent', '')
                 if agent_name and 'Red' in agent_name:
                     is_compromised = 1.0
                     break
             
-            # Feature 2: criticality (온톨로지: Host.criticality 속성)
+            # Feature 2: criticality (ontology: Host.criticality)
             criticality = host_criticality_map.get(hostname, 0.0)
             
-            # Feature 3: service_status (온톨로지: Service.running 속성)
+            # Feature 3: service_status (ontology: Service.running)
             service_status = 0.0
             for proc in host_info.get('Processes', []):
                 if proc.get('Service Name'):
                     service_status = 1.0
                     break
             
-            # Feature 4: threat_level (온톨로지 규칙 기반 계산)
-            # 규칙: compromised AND critical → high threat
-            # 규칙: compromised AND service_down → medium threat
-            # 규칙: safe → low threat
+            # Feature 4: threat_level (ontology-rule-based)
+            # Rule: compromised AND critical → high threat
+            # Rule: compromised AND service_down → medium threat
+            # Rule: safe → low threat
             if is_compromised > 0:
                 if criticality >= 0.8:
                     threat_level = 1.0  # High threat
@@ -528,7 +528,7 @@ class CybORGWrapper(gym.Env):
             features.extend([is_compromised, criticality, service_status, threat_level])
         
         # ===== 3. Network Topology Relations (17 hosts × 2 features) =====
-        # 온톨로지: Relation 개념 (depends_on, connected_to)
+        # Ontology: Relation concepts (depends_on, connected_to)
         subnet_mapping = {
             'User': ['User0', 'User1', 'User2', 'User3', 'User4', 'User_Router'],
             'Enterprise': ['Enterprise0', 'Enterprise1', 'Enterprise2', 'Enterprise_Server', 'Enterprise_Router'],
@@ -536,21 +536,21 @@ class CybORGWrapper(gym.Env):
         }
         
         for hostname in self.known_hosts:
-            # Feature 1: dependency_score (온톨로지: depends_on 관계)
-            # Critical hosts에 대한 의존도 계산
+            # Feature 1: dependency_score (ontology: depends_on)
+            # Dependency on critical hosts
             dependency_score = 0.0
             for critical_host in self.critical_targets:
                 if hostname == critical_host:
-                    dependency_score = 1.0  # 자기 자신
+                    dependency_score = 1.0  # self
                     break
-                # 같은 subnet에 있으면 의존도 증가
+                # Higher dependency if same subnet
                 for subnet, hosts in subnet_mapping.items():
                     if hostname in hosts and critical_host in hosts:
                         dependency_score += 0.3
             dependency_score = min(dependency_score, 1.0)
             
-            # Feature 2: connectivity_score (온톨로지: connected_to 관계)
-            # 같은 subnet 내 다른 hosts와의 연결성
+            # Feature 2: connectivity_score (ontology: connected_to)
+            # Connectivity to other hosts in same subnet
             connectivity_score = 0.0
             for subnet, hosts in subnet_mapping.items():
                 if hostname in hosts:
@@ -563,14 +563,14 @@ class CybORGWrapper(gym.Env):
         return np.array(features, dtype=np.float32)
     
     def _build_dependency_graph(self) -> dict:
-        """온톨로지: Host 간 의존성 그래프 구축 (명시적 관계 모델링).
+        """Ontology: Build dependency graph between hosts (explicit relation modeling).
         
         Returns:
             dependency_graph: dict[host, list[dependent_hosts]]
         """
-        # 명시적인 의존성 관계 정의 (온톨로지: depends_on 관계)
+        # Explicit dependency relations (ontology: depends_on)
         dependency_graph = {
-            'Op_Server0': ['Enterprise_Server', 'Op_Host0', 'Op_Host1'],  # 가장 중요, 많은 hosts에 의존
+            'Op_Server0': ['Enterprise_Server', 'Op_Host0', 'Op_Host1'],  # most critical, depends on many hosts
             'Enterprise_Server': ['Enterprise0', 'Enterprise1', 'Enterprise2'],
             'Op_Host0': ['Op_Host1', 'Op_Host2'],
             'Op_Host1': ['Op_Host2'],
@@ -580,7 +580,7 @@ class CybORGWrapper(gym.Env):
         return dependency_graph
     
     def _infer_attack_chain(self, true_state: dict, compromised_hosts: list) -> dict:
-        """온톨로지: MITRE ATT&CK 기반 공격 체인 추론 및 예측.
+        """Ontology: MITRE ATT&CK-based attack chain inference and prediction.
         
         Returns:
             attack_chain: {
@@ -591,7 +591,7 @@ class CybORGWrapper(gym.Env):
                 'stages': dict
             }
         """
-        # 공격 단계 분류
+        # Attack stage classification
         stages = {
             'Reconnaissance': [],
             'Initial Access': [],
@@ -606,9 +606,9 @@ class CybORGWrapper(gym.Env):
                 stages['Lateral Movement'].append(host)
             elif 'User' in host:
                 stages['Initial Access'].append(host)
-            stages['Reconnaissance'].append(host)  # 모든 compromised host는 Recon 포함
+            stages['Reconnaissance'].append(host)  # every compromised host includes Recon
         
-        # 다음 공격 단계 예측 (온톨로지 추론)
+        # Next attack stage prediction (ontology inference)
         current_stage = 'Reconnaissance'
         if stages['Impact']:
             current_stage = 'Impact'
@@ -617,7 +617,7 @@ class CybORGWrapper(gym.Env):
         elif stages['Initial Access']:
             current_stage = 'Initial Access'
         
-        # 다음 단계 예측
+        # Next stage prediction
         next_stage = 'Initial Access'
         predicted_targets = []
         urgency = 0.0
@@ -633,7 +633,7 @@ class CybORGWrapper(gym.Env):
         elif current_stage == 'Lateral Movement':
             next_stage = 'Impact'
             predicted_targets = self.critical_targets
-            urgency = 1.0  # 최고 긴급도
+            urgency = 1.0  # highest urgency
         
         return {
             'current_stage': current_stage,
@@ -644,30 +644,30 @@ class CybORGWrapper(gym.Env):
         }
     
     def _calculate_recovery_impact(self, recovered_host: str, dependency_graph: dict, true_state: dict, depth: int = 0, max_depth: int = 2) -> float:
-        """온톨로지: 의존성 그래프 기반 복구 영향도 계산 (재귀적 추론).
+        """Ontology: Recovery impact from dependency graph (recursive inference).
         
-        복구된 host가 의존하는 다른 hosts에 미치는 보호 효과를 계산.
+        Computes protection effect on hosts that the recovered host depends on.
         
         Args:
-            recovered_host: 복구된 호스트 이름
-            dependency_graph: 의존성 그래프
-            true_state: 현재 환경의 실제 상태
-            depth: 현재 재귀 깊이
-            max_depth: 최대 재귀 깊이
+            recovered_host: Recovered host name
+            dependency_graph: Dependency graph
+            true_state: Current environment true state
+            depth: Current recursion depth
+            max_depth: Max recursion depth
         
         Returns:
-            impact: float (1.0 이상, 의존성 체인 보호 효과 포함)
+            impact: float (>= 1.0, includes dependency chain protection effect)
         """
-        # 재귀 깊이 제한 (무한 루프 방지)
+        # Recursion depth limit (prevent infinite loop)
         if depth > max_depth:
             return 1.0  # Base case for recursion depth
         
-        impact = 1.0  # 직접 복구 보너스
+        impact = 1.0  # direct recovery bonus
         
-        # 의존성 체인 추론
+        # Dependency chain inference
         dependent_hosts = dependency_graph.get(recovered_host, [])
         for dep_host in dependent_hosts:
-            # 의존하는 host가 안전하면 추가 보너스
+            # Bonus if dependent host is safe
             dep_info = true_state.get(dep_host, {})
             is_dep_compromised = False
             for sess in dep_info.get('Sessions', []):
@@ -677,13 +677,13 @@ class CybORGWrapper(gym.Env):
                     break
             
             if not is_dep_compromised:
-                # 의존성 체인 보호 보너스 (재귀적 추론, 깊이 제한) - 가중치 증가: 0.3→0.5
+                # Dependency chain protection bonus (recursive, depth-limited) - weight 0.3→0.5
                 impact += 0.5 * self._calculate_recovery_impact(dep_host, dependency_graph, true_state, depth + 1, max_depth)
         
         return impact
     
     def _extract_graph_structure(self) -> tuple[dict, list]:
-        """Graph structure extraction (논문 방식).
+        """Graph structure extraction (paper-style).
         
         Returns:
             - node_features: dict[hostname, feature_vector]
@@ -697,15 +697,15 @@ class CybORGWrapper(gym.Env):
         node_features = {}
         edges = []
         
-        # Host nodes와 features 추출
+        # Extract host nodes and features
         for hostname in self.known_hosts:
             host_info = true_state.get(hostname, {})
             
-            # Node features (논문 Table 7 참조)
+            # Node features (see paper Table 7)
             # Host features: compromised, service_up, activity, is_critical, is_user, is_server
             is_compromised = 0.0
             for sess in host_info.get('Sessions', []):
-                # 개선: str() 변환 제거 (1st_success와 일관성)
+                # Improvement: no str() cast (consistent with 1st_success)
                 agent_name = sess.get('Agent', '')
                 if agent_name and 'Red' in agent_name:
                     is_compromised = 1.0
@@ -722,7 +722,7 @@ class CybORGWrapper(gym.Env):
             is_user = 1.0 if 'User' in hostname else 0.0
             is_server = 1.0 if 'Server' in hostname or 'Host' in hostname else 0.0
             
-            # Feature vector (6차원)
+            # Feature vector (6-dim)
             node_features[hostname] = np.array([
                 is_compromised,
                 service_up,
@@ -732,9 +732,9 @@ class CybORGWrapper(gym.Env):
                 is_server
             ], dtype=np.float32)
         
-        # Edge extraction (논문: Connection 정보)
-        # 간소화: 같은 subnet에 있는 hosts는 연결됨
-        # 또는 실제 network topology를 사용 (가능한 경우)
+        # Edge extraction (paper: Connection info)
+        # Simplified: hosts in same subnet are connected
+        # Or use actual network topology when available
         subnet_mapping = {
             'User': ['User0', 'User1', 'User2', 'User3', 'User4', 'User_Router'],
             'Enterprise': ['Enterprise0', 'Enterprise1', 'Enterprise2', 'Enterprise_Server', 'Enterprise_Router'],
@@ -750,10 +750,9 @@ class CybORGWrapper(gym.Env):
         return node_features, edges
     
     def _compute_graph_embeddings(self, node_features: dict, edges: list) -> np.ndarray:
-        """Graph Neural Network embedding computation (논문 방식).
+        """Graph Neural Network embedding computation (paper-style).
         
-        논문: GCN, SAGE, GAT, GIN 사용
-        간소화: 간단한 message passing으로 구현
+        Paper uses GCN, SAGE, GAT, GIN; here simplified as message passing.
         
         Args:
             node_features: dict[hostname, feature_vector]
@@ -766,24 +765,23 @@ class CybORGWrapper(gym.Env):
             # Fallback: zero embeddings
             return np.zeros((len(self.known_hosts), 64), dtype=np.float32)
         
-        # 간소화된 GNN: 2-layer message passing
+        # Simplified GNN: 2-layer message passing
         embedding_dim = 64
         num_nodes = len(self.known_hosts)
         
         # Initialize node embeddings from features
-        # Feature vector (6차원) → embedding (64차원)
+        # Feature vector (6-dim) → embedding (64-dim)
         embeddings = np.zeros((num_nodes, embedding_dim), dtype=np.float32)
         
-        # Feature projection (간단한 linear transformation)
+        # Feature projection (simple linear transform)
         for idx, hostname in enumerate(self.known_hosts):
             if hostname in node_features:
                 features = node_features[hostname]
-                # 간단한 feature expansion (실제로는 학습된 GNN 사용)
-                # 논문에서는 학습된 GNN을 사용하지만, 여기서는 간소화
+                # Simple feature expansion (paper uses learned GNN; here simplified)
                 expanded = np.tile(features, embedding_dim // len(features) + 1)[:embedding_dim]
                 embeddings[idx] = expanded
         
-        # Message passing (간소화된 2-layer GNN)
+        # Message passing (simplified 2-layer GNN)
         # Layer 1: Aggregate neighbor features
         neighbor_embeddings = np.zeros_like(embeddings)
         node_to_idx = {hostname: idx for idx, hostname in enumerate(self.known_hosts)}
@@ -795,7 +793,7 @@ class CybORGWrapper(gym.Env):
                 neighbor_embeddings[idx1] += embeddings[idx2] * 0.1
                 neighbor_embeddings[idx2] += embeddings[idx1] * 0.1
         
-        # Update embeddings (간단한 aggregation)
+        # Update embeddings (simple aggregation)
         embeddings = embeddings * 0.7 + neighbor_embeddings * 0.3
         
         # Layer 2: Second message passing
@@ -814,9 +812,9 @@ class CybORGWrapper(gym.Env):
         return embeddings
     
     def _graph_based_observation(self) -> np.ndarray:
-        """Graph-based observation (논문 방식).
+        """Graph-based observation (paper-style).
         
-        논문: Graph representation → GNN → Node embeddings → Observation
+        Paper: Graph representation → GNN → Node embeddings → Observation
         """
         node_features, edges = self._extract_graph_structure()
         node_embeddings = self._compute_graph_embeddings(node_features, edges)
@@ -828,11 +826,11 @@ class CybORGWrapper(gym.Env):
         return obs.astype(np.float32)
     
     def _stack_observations(self, obs: np.ndarray) -> np.ndarray:
-        """Frame stacking: 시간적 정보 포함."""
+        """Frame stacking: include temporal information."""
         self._obs_history.append(obs.copy())
         
         if len(self._obs_history) < self.frame_stack:
-            # 패딩: 초기에는 0으로 채움
+            # Padding: fill with zeros initially
             padded = [np.zeros_like(obs) for _ in range(self.frame_stack - len(self._obs_history))]
             stacked = np.concatenate(padded + list(self._obs_history), axis=0)
         else:
@@ -841,10 +839,9 @@ class CybORGWrapper(gym.Env):
         return stacked.astype(np.float32)
     
     def _critical_potential(self) -> float:
-        """Potential-based reward shaping을 위한 potential 함수.
+        """Potential function for potential-based reward shaping.
         
-        Critical hosts의 상태를 기반으로 potential 계산.
-        Policy invariance를 보장 (Ng et al., 1999).
+        Potential from critical host states. Ensures policy invariance (Ng et al., 1999).
         """
         try:
             true_state = self.cyborg.get_agent_state('True')
@@ -858,16 +855,16 @@ class CybORGWrapper(gym.Env):
         for hostname in critical_targets:
             host_info = true_state.get(hostname, {})
             
-            # compromised 여부
+            # whether compromised
             is_compromised = 0.0
             for sess in host_info.get('Sessions', []):
-                # 개선: str() 변환 제거 (1st_success와 일관성)
+                # Improvement: no str() cast (consistent with 1st_success)
                 agent_name = sess.get('Agent', '')
                 if agent_name and 'Red' in agent_name:
                     is_compromised = 1.0
                     break
             
-            # service 상태
+            # service status
             service_up = 0.0
             for proc in host_info.get('Processes', []):
                 if proc.get('Service Name'):
@@ -878,11 +875,11 @@ class CybORGWrapper(gym.Env):
             weight = critical_weights.get(hostname, 1.0)
             badness += weight * (1.0 * is_compromised + 0.5 * service_down)
         
-        # Negative potential (낮을수록 좋음)
+        # Negative potential (lower is better)
         return -float(badness)
     
     def _track_attack_chain(self) -> dict:
-        """공격 체인 추적: 초기 침투 → 확산 → 목표 달성."""
+        """Track attack chain: initial compromise → spread → goal."""
         try:
             true_state = self.cyborg.get_agent_state('True')
         except Exception:
@@ -902,7 +899,7 @@ class CybORGWrapper(gym.Env):
                     break
             
             if is_comp:
-                # 공격 단계 결정
+                # Determine attack stage
                 prev_stage = self._attack_chain_state.get(hostname, 0)
                 
                 if hostname in self.critical_targets:
@@ -912,7 +909,7 @@ class CybORGWrapper(gym.Env):
                 else:
                     stage = 1  # Initial compromise
                 
-                # 이전 단계보다 높은 단계로 진행
+                # Advance to higher stage than previous
                 attack_stages[hostname] = max(prev_stage, stage)
             else:
                 attack_stages[hostname] = 0
@@ -923,14 +920,14 @@ class CybORGWrapper(gym.Env):
         return attack_stages
     
     def _preventive_bonus(self, attack_stages: dict) -> float:
-        """예방적 조치 보너스: 공격 확산 방지."""
+        """Preventive action bonus: prevent attack spread."""
         bonus = 0.0
         
-        # Critical targets가 아직 침투되지 않았을 때 보너스
+        # Bonus when critical targets are not yet compromised
         critical_targets = ['Op_Server0', 'Enterprise_Server', 'Op_Host0']
         for host in critical_targets:
             if attack_stages.get(host, 0) == 0:
-                # 주변 hosts가 침투되었지만 critical target은 안전
+                # Neighboring hosts compromised but critical target safe
                 nearby_compromised = 0
                 if host == 'Op_Server0':
                     nearby = ['Op_Host0', 'Op_Host1', 'Op_Host2']
@@ -943,45 +940,44 @@ class CybORGWrapper(gym.Env):
                     if attack_stages.get(nh, 0) > 0:
                         nearby_compromised += 1
                 
-                # 위험한 상황에서 critical target을 보호하면 보너스
+                # Bonus for protecting critical target in risky situation
                 if nearby_compromised > 0:
                     bonus += 2.0 * self.nesy_lam * (nearby_compromised / len(nearby))
         
         return bonus
     
     def _ontology_based_reward_shaping(self, uptime_val: float) -> float:
-        """Ontology-based reward shaping: 명시적인 온톨로지 규칙 기반 보상.
+        """Ontology-based reward shaping: explicit ontology-rule-based reward.
         
-        NeSy 요구사항:
-        1. Explicit Knowledge Representation: 온톨로지 규칙 사용
-        2. Symbolic Reasoning: 논리 규칙 기반 추론
-        3. Potential-based shaping: Policy invariance 보장
+        NeSy requirements:
+        1. Explicit Knowledge Representation: use ontology rules
+        2. Symbolic Reasoning: logic-rule-based inference
+        3. Potential-based shaping: policy invariance
         
-        학습 안정화를 위한 개선:
-        - 학습 진행도 기반 annealing 적용 (후반부 가중치 감소)
-        - Uptime 기반 보너스 비중 증가 (장기 보상 강조)
-        - 단기 보너스보다 장기 보상 강조
+        Improvements for training stability:
+        - Progress-based annealing (reduce weight in later phase)
+        - Increase Uptime-based bonus (emphasize long-term reward)
+        - Emphasize long-term over short-term bonus
         
         Returns:
             ontology_bonus: float
         """
-        # 학습 진행도 기반 annealing 계수 계산
-        # 학습 후반부(50% 이후)에 가중치를 점진적으로 감소시켜 안정성 향상
-        # max_episode_steps=800, stop_iters=50이면 약 40,000 스텝
-        # 학습 후반부(20,000 스텝 이후)에 annealing 시작
+        # Progress-based annealing coefficient
+        # Gradually reduce weight after 50% of training for stability
+        # max_episode_steps=800, stop_iters=50 → ~40,000 steps; annealing starts after 20,000
         annealing_start_steps = 20000
         annealing_end_steps = 40000
         if hasattr(self, 'total_steps') and self.total_steps > annealing_start_steps:
             if self.total_steps >= annealing_end_steps:
-                annealing_factor = 0.7  # 후반부에는 70% 가중치
+                annealing_factor = 0.7  # 70% weight in later phase
             else:
-                # 선형 감소: 1.0 → 0.7
+                # Linear decay: 1.0 → 0.7
                 progress = (self.total_steps - annealing_start_steps) / (annealing_end_steps - annealing_start_steps)
                 annealing_factor = 1.0 - 0.3 * progress
         else:
-            annealing_factor = 1.0  # 초반에는 100% 가중치
+            annealing_factor = 1.0  # 100% weight in early phase
         
-        # Effective lambda: 원래 lambda에 annealing 적용
+        # Effective lambda: apply annealing to original lambda
         effective_lam = self.nesy_lam * annealing_factor
         
         try:
@@ -989,10 +985,10 @@ class CybORGWrapper(gym.Env):
         except Exception:
             return 0.0
         
-        # ===== 온톨로지 구조 초기화 =====
+        # ===== Ontology structure init =====
         dependency_graph = self._build_dependency_graph()
         
-        # ===== 온톨로지 Concepts 인스턴스화 =====
+        # ===== Ontology Concepts instantiation =====
         current_critical_status = {}
         compromised_hosts = []
         
@@ -1015,28 +1011,28 @@ class CybORGWrapper(gym.Env):
         
         bonus = 0.0
         
-        # ===== 온톨로지 Axiom 1: Critical Host 복구 (개선) =====
-        # 의존성 그래프를 고려한 복구 보너스
+        # ===== Ontology Axiom 1: Critical Host recovery (improved) =====
+        # Recovery bonus considering dependency graph
         for host in self.critical_targets:
             prev = self._prev_critical_status_onto.get(host, 0.0)
             curr = current_critical_status.get(host, 0.0)
             
-            if prev == 1.0 and curr == 0.0:  # 복구됨
-                # 기본 복구 보너스 (추가 증가: 5% 목표 달성을 위해 100→150으로 증가)
-                # annealing 적용으로 학습 후반부에는 가중치 감소
+            if prev == 1.0 and curr == 0.0:  # recovered
+                # Base recovery bonus (increased 100→150 for 5% goal)
+                # Annealing reduces weight in later training
                 base_bonus = 150.0 * effective_lam
                 
-                # 의존성 그래프 기반 간접 효과 보너스 (추가 증가: 40→60)
+                # Dependency-graph-based indirect effect bonus (40→60)
                 dependency_impact = self._calculate_recovery_impact(
                     host, dependency_graph, true_state, depth=0, max_depth=2
                 )
                 
-                # 간접 효과 보너스 (의존하는 hosts가 안전해지는 효과) - 추가 증가
+                # Indirect effect bonus (dependent hosts become safe)
                 indirect_bonus = 60.0 * effective_lam * (dependency_impact - 1.0)
                 
-                # Critical host 중요도에 따른 추가 보너스 (추가 증가: 50→75, 35→50)
+                # Extra bonus by critical host importance (50→75, 35→50)
                 if host == 'Op_Server0':
-                    bonus += base_bonus + indirect_bonus + 75.0 * effective_lam  # 가장 중요
+                    bonus += base_bonus + indirect_bonus + 75.0 * effective_lam  # most critical
                 elif host == 'Enterprise_Server':
                     bonus += base_bonus + indirect_bonus + 50.0 * effective_lam
                 else:
@@ -1044,14 +1040,14 @@ class CybORGWrapper(gym.Env):
         
         self._prev_critical_status_onto = current_critical_status
         
-        # ===== 온톨로지 Axiom 2: 공격 체인 예측 및 예방 (개선) =====
-        # MITRE ATT&CK 기반 공격 단계 추론
+        # ===== Ontology Axiom 2: Attack chain prediction and prevention (improved) =====
+        # MITRE ATT&CK-based attack stage inference
         attack_chain = self._infer_attack_chain(true_state, compromised_hosts)
         
         if attack_chain['urgency'] > 0.5:
-            # 다음 공격 단계 예측 및 예방 보너스
+            # Next attack stage prediction and prevention bonus
             if attack_chain['next_stage'] == 'Impact':
-                # Impact 단계로 진행하기 전에 예방
+                # Prevent before advancing to Impact
                 for target in attack_chain['predicted_targets']:
                     if target in self.critical_targets:
                         host_info = true_state.get(target, {})
@@ -1061,13 +1057,13 @@ class CybORGWrapper(gym.Env):
                                 is_safe = False
                                 break
                         if is_safe:
-                            # 예방 성공 보너스 (추가 증가: 5% 목표 달성을 위해 60→90으로 증가)
-                            # annealing 적용
+                            # Prevention success bonus (60→90 for 5% goal)
+                            # Annealing applied
                             bonus += 90.0 * effective_lam * attack_chain['urgency']
         
-        # 추가: 공격 체인 초기 단계에서도 예방 보너스
+        # Also: prevention bonus in early attack chain stages
         if attack_chain['current_stage'] in ['Initial Access', 'Lateral Movement']:
-            # 초기 단계에서 예방하면 더 큰 보너스
+            # Larger bonus for prevention in early stage
             for target in attack_chain['predicted_targets']:
                 if target in self.critical_targets:
                     host_info = true_state.get(target, {})
@@ -1077,48 +1073,48 @@ class CybORGWrapper(gym.Env):
                             is_safe = False
                             break
                     if is_safe:
-                        # 초기 예방 보너스 (추가 증가: 5% 목표 달성을 위해 40→60으로 증가)
-                        # annealing 적용
+                        # Early prevention bonus (40→60 for 5% goal)
+                        # Annealing applied
                         bonus += 60.0 * effective_lam * (1.0 - attack_chain['urgency'])
         
-        # ===== 온톨로지 Axiom 3: Uptime 보존 (개선) =====
+        # ===== Ontology Axiom 3: Uptime preservation (improved) =====
         if not hasattr(self, '_prev_uptime_onto'):
             self._prev_uptime_onto = uptime_val
         
         uptime_delta = uptime_val - self._prev_uptime_onto
         if uptime_delta > 0:
-            # Uptime 증가 보너스 (추가 증가: 5% 목표 달성을 위해 120→180으로 증가)
-            # Uptime 기반 보너스는 장기 보상이므로 annealing을 덜 적용 (90% 유지)
+            # Uptime increase bonus (120→180 for 5% goal)
+            # Uptime bonus is long-term; less annealing (90% kept)
             uptime_annealing = 0.9 if annealing_factor < 1.0 else 1.0
             bonus += 180.0 * effective_lam * uptime_annealing * uptime_delta
         elif uptime_delta < -0.01:
-            # Uptime 감소 페널티 (추가 증가: 더 강한 페널티로 개선 유도)
-            # 페널티는 학습 안정화를 위해 후반부에도 유지
+            # Uptime decrease penalty (stronger penalty for improvement)
+            # Penalty kept in later phase for training stability
             bonus -= 50.0 * effective_lam * abs(uptime_delta)
         
-        # 높은 Uptime 유지 보너스 (추가 증가: 5% 목표 달성을 위해 50→75로 증가)
-        # Uptime 기반 보너스는 장기 보상이므로 비중 증가
-        if uptime_val > 0.70:  # 70% 이상부터 보너스 시작
+        # High Uptime maintenance bonus (50→75 for 5% goal)
+        # Uptime bonus emphasized as long-term reward
+        if uptime_val > 0.70:  # bonus starts from 70%
             uptime_annealing = 0.9 if annealing_factor < 1.0 else 1.0
             bonus += 75.0 * effective_lam * uptime_annealing * (uptime_val - 0.70)
         
-        # 매우 높은 Uptime 추가 보너스 (추가 증가: 5% 목표 달성을 위해 70→100으로 증가)
-        # Uptime 기반 보너스는 장기 보상이므로 비중 증가
+        # Very high Uptime extra bonus (70→100 for 5% goal)
+        # Uptime bonus emphasized as long-term reward
         if uptime_val > 0.80:
             uptime_annealing = 0.9 if annealing_factor < 1.0 else 1.0
             bonus += 100.0 * effective_lam * uptime_annealing * (uptime_val - 0.80)
         
-        # 추가: 지속적인 보호 보너스 (critical host가 안전하게 유지되면 보너스) - 추가 증가
-        # 지속 보호는 장기 보상이므로 비중 증가
+        # Sustained protection bonus (bonus when critical hosts stay safe)
+        # Sustained protection emphasized as long-term reward
         safe_critical_count = sum(1 for h in self.critical_targets if current_critical_status.get(h, 1.0) == 0.0)
         if safe_critical_count > 0:
-            # 모든 critical host가 안전하면 추가 보너스 (30→50으로 증가)
-            # 지속 보호는 장기 보상이므로 annealing을 덜 적용
+            # Extra bonus when all critical hosts safe (30→50)
+            # Less annealing for sustained protection
             protection_annealing = 0.85 if annealing_factor < 1.0 else 1.0
             if safe_critical_count == len(self.critical_targets):
-                bonus += 50.0 * effective_lam * protection_annealing  # 모든 critical host 안전 보너스
+                bonus += 50.0 * effective_lam * protection_annealing  # all critical hosts safe
             else:
-                bonus += 15.0 * effective_lam * protection_annealing * (safe_critical_count / len(self.critical_targets))  # 부분 보너스 (10→15)
+                bonus += 15.0 * effective_lam * protection_annealing * (safe_critical_count / len(self.critical_targets))  # partial (10→15)
         
         self._prev_uptime_onto = uptime_val
         self._prev_compromised_hosts_onto = compromised_hosts.copy()
@@ -1126,7 +1122,7 @@ class CybORGWrapper(gym.Env):
         return bonus
 
     def _apply_logic_guided_reward(self, action: int, state_info: dict) -> float:
-        """Logic-Guided Policy: 논리 규칙에 따른 보상 보너스 (NeSy)."""
+        """Logic-Guided Policy: reward bonus by logic rules (NeSy)."""
         if not self.use_logic_guided:
             return 0.0
         
@@ -1139,7 +1135,7 @@ class CybORGWrapper(gym.Env):
         
         bonus = 0.0
         
-        # 규칙 1: Critical host가 compromised되면 복구 행동에 보너스
+        # Rule 1: Bonus for recovery action when critical host is compromised
         critical_compromised = False
         for hostname in self.critical_targets:
             host_info = true_state.get(hostname, {})
@@ -1151,18 +1147,18 @@ class CybORGWrapper(gym.Env):
                 break
         
         if critical_compromised:
-            # 복구 행동에 보너스 (action type을 직접 확인할 수 없으므로
-            # 다음 step에서 복구 확인 시 보너스 지급)
-            # 여기서는 간단히 상태 기반 보너스만 제공
+            # Bonus for recovery (action type not directly observable;
+            # bonus given when recovery is confirmed next step)
+            # Here only state-based bonus
             bonus += 5.0 * self.nesy_lam
         
-        # 규칙 2: 공격 패턴 감지 시 방어 행동 보너스
-        # (구현 복잡도 고려하여 간단히 처리)
+        # Rule 2: Bonus for defense action when attack pattern detected
+        # (simplified for implementation)
         
         return bonus
     
     def _apply_rule_pruning_penalty(self, action: int, state_info: dict) -> float:
-        """Rule-Based Pruning: 규칙 위반 행동에 페널티 (NeSy)."""
+        """Rule-Based Pruning: penalty for rule-violating actions (NeSy)."""
         if not self.use_rule_pruning:
             return 0.0
         
@@ -1176,7 +1172,7 @@ class CybORGWrapper(gym.Env):
         penalty = 0.0
         uptime_val = self._calculate_uptime_fast()
         
-        # 규칙 1: Critical host가 모두 안전한데 복구 행동 시 페널티
+        # Rule 1: Penalty for recovery action when all critical hosts are safe
         all_critical_safe = True
         for hostname in self.critical_targets:
             host_info = true_state.get(hostname, {})
@@ -1188,13 +1184,13 @@ class CybORGWrapper(gym.Env):
                 break
         
         if all_critical_safe:
-            # 안전한 상태에서 불필요한 복구 행동 페널티
-            # (action type 확인이 복잡하므로 간단히 처리)
+            # Penalty for unnecessary recovery when safe
+            # (action type check complex; simplified)
             pass
         
-        # 규칙 2: Uptime이 높은데 공격적 방어 행동 페널티
+        # Rule 2: Penalty for aggressive defense when Uptime is high
         if uptime_val >= 0.95:
-            # (action type 확인이 복잡하므로 간단히 처리)
+            # (action type check complex; simplified)
             pass
         
         return penalty
@@ -1207,29 +1203,28 @@ class CybORGWrapper(gym.Env):
 
         if seed is not None:
             self.seed_value = int(seed)
-            # CybORG에 seed 재설정 (가능한 경우)
+            # Reset CybORG seed when possible
             try:
                 self.cyborg.set_seed(self.seed_value)
             except Exception:
                 pass
 
-        # 1st_success 방식: OpenAIGymWrapper의 reset 사용
+        # 1st_success: use OpenAIGymWrapper reset
         res = self._gym_env.reset()
         obs = (res[0] if isinstance(res, tuple) else res)
         
-        # uptime 값을 추출 (obs[0]이 uptime일 수 있음)
+        # Extract uptime (obs[0] may be uptime)
         uptime_val = float(obs[0]) if len(obs) > 0 else 1.0
         
-        # NeSy observation 분기 (ablation 설계 의도):
+        # NeSy observation branch (ablation design):
         # - Base: raw observation (~11k dim)
         # - State (2): 52-dim state abstraction
-        # - Reward (3): raw observation (reward shaping만)
+        # - Reward (3): raw observation (reward shaping only)
         # - Ontology (5): 107-dim ontology observation
         # - Full (4): 52-dim state abstraction
-        # - Full Ontology (6 = 2+3+5): 107-dim ontology observation
-        #   → 107-dim이 52-dim의 정보를 포함하므로 실험 2(state) 정보 포함
+        # - Full Ontology (6 = 2+3+5): 107-dim ontology observation (includes exp 2 state info)
         if self.use_107dim_unified:
-            obs = self._ontology_based_observation()  # ontology, full_ontology 모두 107-dim
+            obs = self._ontology_based_observation()  # ontology, full_ontology both 107-dim
         elif self.use_graph_representation:
             obs = self._graph_based_observation()
         elif self.use_state_abstraction:
@@ -1237,13 +1232,13 @@ class CybORGWrapper(gym.Env):
         else:
             obs = np.array(obs, dtype=np.float32)  # base, reward (raw)
         
-        # Frame stacking 적용 (활성화된 경우만)
+        # Apply frame stacking when enabled
         if self.enable_frame_stack and self.frame_stack > 1:
             obs = self._stack_observations(obs)
 
-        # Reward shaping을 위한 초기 상태 저장 (1st_success 방식으로 통일)
+        # Store initial state for reward shaping (1st_success)
         if self.use_reward_shaping:
-            # 1st_success 방식: reset 시 실제 상태로 초기화
+            # 1st_success: init to actual state on reset
             try:
                 true_state = self.cyborg.get_agent_state('True')
                 critical_targets = ['Op_Server0', 'Enterprise_Server', 'Op_Host0']
@@ -1260,7 +1255,7 @@ class CybORGWrapper(gym.Env):
             except Exception:
                 self._prev_critical_status = {'Op_Server0': 0.0, 'Enterprise_Server': 0.0, 'Op_Host0': 0.0}
             
-            # Uptime 추적 초기화
+            # Init uptime tracking
             self._prev_uptime = uptime_val
             self._uptime_history = deque(maxlen=10)
             self._uptime_history.append(uptime_val)
@@ -1269,24 +1264,24 @@ class CybORGWrapper(gym.Env):
 
         info = {} if not isinstance(res, tuple) or res[1] is None else res[1]
         if isinstance(info, dict):
-            info.pop("observation", None)  # 1st_success와 동일
+            info.pop("observation", None)  # same as 1st_success
             info.setdefault("nesy_mode", self.nesy_mode)
-            info["uptime_value"] = uptime_val  # 1st_success와 동일 - Callback에서 수집함
-            info["nesy_bonus"] = 0.0  # reset에서는 보너스 없음
-            # Raw reward 로깅 분리 (필수): 논문 방어력 향상
-            info["raw_reward"] = 0.0  # reset에서는 보상 없음
-            info["shaping_bonus"] = 0.0  # reset에서는 보너스 없음
-            info["shaped_return"] = 0.0  # reset에서는 보상 없음
-            # Observation dimension 로깅 (Full Ontology vs Ontology 차이 증명용)
-            info["obs_dim"] = int(self.observation_space.shape[0] // self.frame_stack)  # base observation dimension
+            info["uptime_value"] = uptime_val  # same as 1st_success - collected by Callback
+            info["nesy_bonus"] = 0.0  # no bonus on reset
+            # Separate raw reward logging (for paper defense metrics)
+            info["raw_reward"] = 0.0  # no reward on reset
+            info["shaping_bonus"] = 0.0  # no bonus on reset
+            info["shaped_return"] = 0.0  # no reward on reset
+            # Observation dimension logging (Full Ontology vs Ontology)
+            info["obs_dim"] = int(self.observation_space.shape[0] // self.frame_stack)  # base obs dim
         
         return obs, info
 
     def step(self, action):
         self.steps += 1
-        self.total_steps += 1  # 전체 스텝 수 추적 (annealing용)
+        self.total_steps += 1  # track total steps (for annealing)
 
-        # Logic-Guided Policy: 행동 필터링 (현재는 보상 보너스로 구현)
+        # Logic-Guided Policy: action filtering (currently implemented as reward bonus)
         logic_bonus = 0.0
         if self.use_logic_guided:
             try:
@@ -1295,7 +1290,7 @@ class CybORGWrapper(gym.Env):
                 state_info = {}
             logic_bonus = self._apply_logic_guided_reward(action, state_info)
         
-        # Rule-Based Pruning: 규칙 위반 페널티
+        # Rule-Based Pruning: penalty for rule violation
         pruning_penalty = 0.0
         if self.use_rule_pruning:
             try:
@@ -1304,32 +1299,31 @@ class CybORGWrapper(gym.Env):
                 state_info = {}
             pruning_penalty = self._apply_rule_pruning_penalty(action, state_info)
         
-        # 1st_success 방식: OpenAIGymWrapper의 step 사용
+        # 1st_success: use OpenAIGymWrapper step
         res = self._gym_env.step(action)
         obs, reward, done, info = (res[0], res[1], res[2], res[3]) if len(res) == 4 else res
         
-        # Raw reward 저장 (shaping 전 원본 보상)
+        # Store raw reward (before shaping)
         raw_reward = float(reward)
         
-        # uptime 값을 추출 (obs[0]이 uptime일 수 있음)
+        # Extract uptime (obs[0] may be uptime)
         uptime_val = float(obs[0]) if len(obs) > 0 else 1.0
         
-        # Uptime 추적 초기화 (첫 스텝)
+        # Init uptime tracking (first step)
         if not hasattr(self, '_prev_uptime'):
             self._prev_uptime = uptime_val
         if not hasattr(self, '_uptime_history'):
             self._uptime_history = deque(maxlen=10)
         
-        # NeSy observation 분기 (ablation 설계 의도):
+        # NeSy observation branch (ablation design):
         # - Base: raw observation (~11k dim)
         # - State (2): 52-dim state abstraction
-        # - Reward (3): raw observation (reward shaping만)
+        # - Reward (3): raw observation (reward shaping only)
         # - Ontology (5): 107-dim ontology observation
         # - Full (4): 52-dim state abstraction
-        # - Full Ontology (6 = 2+3+5): 107-dim ontology observation
-        #   → 107-dim이 52-dim의 정보를 포함하므로 실험 2(state) 정보 포함
+        # - Full Ontology (6 = 2+3+5): 107-dim (includes exp 2 state info)
         if self.use_107dim_unified:
-            obs = self._ontology_based_observation()  # ontology, full_ontology 모두 107-dim
+            obs = self._ontology_based_observation()  # ontology, full_ontology both 107-dim
         elif self.use_graph_representation:
             obs = self._graph_based_observation()
         elif self.use_state_abstraction:
@@ -1337,39 +1331,39 @@ class CybORGWrapper(gym.Env):
         else:
             obs = np.array(obs, dtype=np.float32)  # base, reward (raw)
         
-        # Frame stacking 적용 (활성화된 경우만)
+        # Apply frame stacking when enabled
         if self.enable_frame_stack and self.frame_stack > 1:
             obs = self._stack_observations(obs)
 
-        # ===== NeSy Reward Shaping (보수적 접근: Base 성능 유지) =====
-        # 문제: 과도한 reward shaping이 학습을 방해함
-        # 해결: 매우 보수적인 reward shaping만 적용 (이벤트 기반)
-        # - 매 스텝 보너스 제거 (노이즈 감소)
-        # - Critical Host 복구 시에만 작은 보너스 (1st_success 방식)
-        # - 예방적 조치 보너스 제거
+        # ===== NeSy Reward Shaping (conservative: preserve base performance) =====
+        # Issue: excessive shaping hurts learning
+        # Fix: event-based conservative shaping only
+        # - No per-step bonus (reduce noise)
+        # - Small bonus only on Critical Host recovery (1st_success)
+        # - No preventive-action bonus
         
-        # Ontology 모드: 명시적인 온톨로지 규칙 기반 reward shaping
-        # full_ontology 모드: Full NeSy의 multi-objective + Ontology의 axiom-based 둘 다 사용
+        # Ontology mode: explicit ontology-rule-based reward shaping
+        # full_ontology: multi-objective + axiom-based both
         nesy_bonus = 0.0
         
 
-        # ===== Uptime Delta 보너스 (대폭 개선: 모든 seed에서 개선 + 5% 목표) =====
+        # ===== Uptime Delta bonus (improved: all seeds + 5% goal) =====
         if self.use_reward_shaping and self.nesy_lam != 0.0:
             uptime_delta = uptime_val - self._prev_uptime
             if uptime_delta > 0:
-                # Uptime 증가 보너스 (대폭 증가: 모든 seed에서 개선)
+                # Uptime increase bonus
                 nesy_bonus += 70.0 * self.nesy_lam * uptime_delta
             elif uptime_delta < -0.01:
-                # Uptime 감소 페널티 (증가)
+                # Uptime decrease penalty
                 nesy_bonus -= 25.0 * self.nesy_lam * abs(uptime_delta)
 
-        # ===== Uptime Preserve 보너스 (대폭 개선: 모든 seed에서 개선) =====
+        # ===== Uptime Preserve bonus (improved: all seeds) =====
         if self.use_reward_shaping and self.nesy_lam != 0.0:
-            if uptime_val > 0.70:  # 70% 이상부터 보너스 시작
+            if uptime_val > 0.70:  # bonus from 70%
                 nesy_bonus += 35.0 * self.nesy_lam * (uptime_val - 0.70)
-            if uptime_val > 0.80:  # 80% 이상 추가 보너스
+            if uptime_val > 0.80:  # extra bonus from 80%
                 nesy_bonus += 50.0 * self.nesy_lam * (uptime_val - 0.80)
-        # Uptime 추적 업데이트 (분석용, 보너스 계산에는 사용 안 함)
+        # Uptime tracking update (for analysis; not used in bonus)
         if not hasattr(self, '_prev_uptime'):
             self._prev_uptime = uptime_val
         if not hasattr(self, '_uptime_history'):
@@ -1378,18 +1372,18 @@ class CybORGWrapper(gym.Env):
         self._uptime_history.append(uptime_val)
         
         if self.nesy_mode == "full_ontology" and self.nesy_lam != 0.0:
-            # 실험 6 (Full Ontology = 2+3+5): State + Reward + Ontology 모두 포함
-            # - 실험 2 (State): 107-dim ontology observation에 포함됨
-            # - 실험 3 (Reward): multi-objective reward (uptime delta/preserve + critical host 복구)
-            #   → nesy_bonus에 이미 uptime delta/preserve 보너스가 포함됨 (위 1346, 1356줄)
-            # - 실험 5 (Ontology): ontology axiom reward
-            # 따라서 critical host 복구 보너스(실험 3의 일부) + ontology axiom reward(실험 5) 추가
+            # Exp 6 (Full Ontology = 2+3+5): State + Reward + Ontology
+            # - Exp 2 (State): in 107-dim ontology observation
+            # - Exp 3 (Reward): multi-objective (uptime delta/preserve + critical host recovery)
+            #   → nesy_bonus already has uptime delta/preserve (lines above)
+            # - Exp 5 (Ontology): ontology axiom reward
+            # Add critical host recovery (exp 3) + ontology axiom (exp 5)
             full_nesy_bonus = 0.0
             try:
                 true_state = self.cyborg.get_agent_state('True')
                 critical_targets = ['Op_Server0', 'Enterprise_Server', 'Op_Host0']
                 
-                # 1st_success 방식: Critical host 복구 시에만 보너스 (실험 3의 multi-objective reward 일부)
+                # 1st_success: bonus only on Critical host recovery (part of exp 3)
                 current_critical_status = {}
                 for hostname in critical_targets:
                     info = true_state.get(hostname, {})
@@ -1404,14 +1398,14 @@ class CybORGWrapper(gym.Env):
                 if not hasattr(self, '_prev_critical_status_full_onto'):
                     self._prev_critical_status_full_onto = {h: 0.0 for h in critical_targets}
                 
-                # Critical Host 복구 보너스 (실험 3의 multi-objective reward 일부)
+                # Critical Host recovery bonus (part of exp 3)
                 for host in critical_targets:
                     prev = self._prev_critical_status_full_onto.get(host, 0.0)
                     curr = current_critical_status.get(host, 0.0)
-                    if prev == 1.0 and curr == 0.0:  # 복구됨
-                        # Critical host 복구는 매우 중요하므로 큰 보너스
+                    if prev == 1.0 and curr == 0.0:  # recovered
+                        # Critical host recovery is very important
                         if host == 'Op_Server0':
-                            full_nesy_bonus += 70.0 * self.nesy_lam  # 가장 중요
+                            full_nesy_bonus += 70.0 * self.nesy_lam  # most critical
                         elif host == 'Enterprise_Server':
                             full_nesy_bonus += 60.0 * self.nesy_lam
                         else:
@@ -1422,21 +1416,20 @@ class CybORGWrapper(gym.Env):
             except Exception:
                 pass
             
-            # Ontology의 axiom-based reward shaping 추가 (실험 5)
+            # Add ontology axiom-based reward shaping (exp 5)
             ontology_bonus = self._ontology_based_reward_shaping(uptime_val)
-            # nesy_bonus에는 이미 uptime delta/preserve 보너스가 포함되어 있음 (위 1346, 1356줄)
-            # 여기에 critical host 복구 보너스(실험 3) + ontology axiom reward(실험 5) 추가
+            # nesy_bonus already has uptime delta/preserve; add critical recovery (exp 3) + axiom (exp 5)
             nesy_bonus = nesy_bonus + full_nesy_bonus + ontology_bonus
         elif self.use_ontology and self.nesy_mode == "ontology" and self.nesy_lam != 0.0:
-            # Ontology-only 모드: Ontology-based reward shaping만 사용
+            # Ontology-only: ontology-based reward shaping only
             nesy_bonus = self._ontology_based_reward_shaping(uptime_val)
         elif self.use_reward_shaping and self.nesy_lam != 0.0:
-            # 1st_success 방식으로 단순화: Critical host 복구 시에만 보너스
+            # 1st_success: bonus only on Critical host recovery
             try:
                 true_state = self.cyborg.get_agent_state('True')
                 critical_targets = ['Op_Server0', 'Enterprise_Server', 'Op_Host0']
                 
-                # 1st_success 방식: Critical host 복구 시에만 보너스
+                # 1st_success: bonus only on Critical host recovery
                 current_critical_status = {}
                 for hostname in critical_targets:
                     info = true_state.get(hostname, {})
@@ -1451,14 +1444,14 @@ class CybORGWrapper(gym.Env):
                 if not hasattr(self, '_prev_critical_status'):
                     self._prev_critical_status = {h: 0.0 for h in critical_targets}
                 
-                # Critical Host 복구 보너스 (대폭 증가: 모든 seed에서 개선 + 5% 목표)
+                # Critical Host recovery bonus (increased for 5% goal)
                 for host in critical_targets:
                     prev = self._prev_critical_status.get(host, 0.0)
                     curr = current_critical_status.get(host, 0.0)
-                    if prev == 1.0 and curr == 0.0:  # 복구됨
-                        # Critical host 복구는 매우 중요하므로 큰 보너스
+                    if prev == 1.0 and curr == 0.0:  # recovered
+                        # Critical host recovery is very important
                         if host == 'Op_Server0':
-                            nesy_bonus += 70.0 * self.nesy_lam  # 가장 중요
+                            nesy_bonus += 70.0 * self.nesy_lam  # most critical
                         elif host == 'Enterprise_Server':
                             nesy_bonus += 60.0 * self.nesy_lam
                         else:
@@ -1467,7 +1460,7 @@ class CybORGWrapper(gym.Env):
                 self._prev_critical_status = current_critical_status
                 
             except Exception as e:
-                # Fallback: 1st_success 방식 (단순하고 효과적)
+                # Fallback: 1st_success (simple and effective)
                 if not hasattr(self, '_prev_critical_status'):
                     self._prev_critical_status = {'Op_Server0': 0.0, 'Enterprise_Server': 0.0, 'Op_Host0': 0.0}
                 
@@ -1487,7 +1480,7 @@ class CybORGWrapper(gym.Env):
                         prev = self._prev_critical_status.get(host, 0.0)
                         curr = current_critical_status.get(host, 0.0)
                         if prev == 1.0 and curr == 0.0:
-                            # Critical host 복구 보너스 (대폭 증가)
+                            # Critical host recovery bonus (increased)
                             if host == 'Op_Server0':
                                 nesy_bonus += 50.0 * self.nesy_lam
                             elif host == 'Enterprise_Server':
@@ -1497,14 +1490,14 @@ class CybORGWrapper(gym.Env):
                     
                     self._prev_critical_status = current_critical_status
                 except:
-                    # 최종 fallback: 간단한 reward shaping
+                    # Final fallback: simple reward shaping
                     uptime = self._calculate_uptime_fast()
                     compromised, _unknown = self._get_compromise_counts()
                     shaping = (uptime * 1.0) - (compromised * 0.05)
                     nesy_bonus = float(self.nesy_lam) * float(shaping)
 
         # ===== Adaptive Reward Scaling =====
-        # 학습 단계에 따른 보너스 조정 (활성화된 경우만)
+        # Bonus scaling by training phase (when enabled)
         if self.enable_adaptive_scale:
             self._episode_count += 1
             if self._episode_count < 1000:
@@ -1512,37 +1505,37 @@ class CybORGWrapper(gym.Env):
             else:
                 self._adaptive_scale = 1.0
             
-            # NeSy 보너스에만 adaptive scale 적용 (baseline reward는 그대로)
+            # Apply adaptive scale only to NeSy bonus (baseline unchanged)
             if nesy_bonus != 0.0:
                 nesy_bonus *= self._adaptive_scale
         else:
-            self._adaptive_scale = 1.0  # 비활성화 시 항상 1.0
+            self._adaptive_scale = 1.0  # always 1.0 when disabled
 
-        # Logic-Guided Policy와 Rule-Based Pruning 보너스/페널티 적용
+        # Apply Logic-Guided Policy and Rule-Based Pruning bonus/penalty
         reward = float(reward) + nesy_bonus + logic_bonus - pruning_penalty
 
-        # Gymnasium 형식으로 변환
+        # Convert to Gymnasium format
         terminated = bool(done)
         truncated = self.steps >= self.max_episode_steps
         if done or truncated:
-            self.episode_count += 1  # 에피소드 완료 시 카운트 증가
+            self.episode_count += 1  # increment on episode end
 
-        # Info 업데이트 (1st_success와 동일한 형식 + 개선 사항)
+        # Info update (same format as 1st_success + improvements)
         if isinstance(info, dict):
-            info.pop("observation", None)  # 1st_success와 동일
+            info.pop("observation", None)  # same as 1st_success
             info.setdefault("nesy_mode", self.nesy_mode)
-            info["uptime_value"] = uptime_val  # 1st_success와 동일 - Callback에서 수집함
+            info["uptime_value"] = uptime_val  # same as 1st_success - collected by Callback
             info["nesy_bonus"] = nesy_bonus
-            # Raw reward 로깅 분리 (필수): 논문 방어력 향상
-            info["raw_reward"] = raw_reward  # 환경 원본 보상 (shaping 전)
-            info["shaping_bonus"] = nesy_bonus + logic_bonus - pruning_penalty  # 모든 shaping 보너스 합계
-            info["shaped_return"] = float(reward)  # 최종 보상 (raw + shaping)
+            # Separate raw reward logging (for paper defense metrics)
+            info["raw_reward"] = raw_reward  # env original reward (before shaping)
+            info["shaping_bonus"] = nesy_bonus + logic_bonus - pruning_penalty  # total shaping
+            info["shaped_return"] = float(reward)  # final reward (raw + shaping)
             info["nesy_adaptive_scale"] = self._adaptive_scale
             info["nesy_frame_stack"] = self.frame_stack
             info["logic_guided_bonus"] = logic_bonus
             info["rule_pruning_penalty"] = pruning_penalty
-            # Observation dimension 로깅 (Full Ontology vs Ontology 차이 증명용)
-            info["obs_dim"] = int(self.observation_space.shape[0] // self.frame_stack)  # base observation dimension
+            # Observation dimension logging (Full Ontology vs Ontology)
+            info["obs_dim"] = int(self.observation_space.shape[0] // self.frame_stack)  # base obs dim
 
         return obs, float(reward), terminated, truncated, info if isinstance(info, dict) else {}
 
@@ -1563,7 +1556,7 @@ def create_cyborg_env(env_config: dict | None = None):
     except Exception:
         lam = 1.0
     
-    # Frame Stacking과 Adaptive Scaling 제어
+    # Frame Stacking and Adaptive Scaling control
     enable_frame_stack = env_config.get("enable_frame_stack", False)
     enable_adaptive_scale = env_config.get("enable_adaptive_scale", False)
 

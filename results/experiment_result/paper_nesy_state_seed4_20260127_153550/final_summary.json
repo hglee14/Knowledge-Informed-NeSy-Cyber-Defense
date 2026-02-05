@@ -1,0 +1,11 @@
+{
+  "exp_name": "paper_nesy_state_seed4_20260127_153550",
+  "ablation": "state",
+  "seed": 4,
+  "nesy_lam": 1.0,
+  "timesteps_total": 200000,
+  "episode_reward_mean": -8188.91,
+  "episode_len_mean": 339.57,
+  "uptime_rate_mean": 0.7423892501171773,
+  "logdir": "ray_results/paper_6_ablations_20260127_153550/paper_nesy_state_seed4_20260127_153550"
+}
