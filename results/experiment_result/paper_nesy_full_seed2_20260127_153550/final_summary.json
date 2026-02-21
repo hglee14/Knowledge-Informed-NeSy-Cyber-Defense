@@ -7,5 +7,5 @@
   "episode_reward_mean": -5419.7233454281095,
   "episode_len_mean": 349.7,
   "uptime_rate_mean": 0.7314508791545461,
-  "logdir": "ray_results/paper_6_ablations_20260127_153550/paper_nesy_full_seed2_20260127_153550"
+  "logdir": "ray_results/paper_4_ablations_20260127_153550/paper_nesy_full_seed2_20260127_153550"
 }
